@@ -28,24 +28,25 @@ class Evolution:
     @staticmethod
     def mutate(individual):
         if np.random.random() < 0.5:
-            x, y = np.random.randint(0, 64), np.random.randint(0, 64)
+            col, row = np.random.randint(0, 64), np.random.randint(0, 64)
             color = np.random.randint(0, 256, (1, 1, 3), dtype=np.uint8)
-            individual[y:(y + 1), x:(x + 1)] = color
+            individual[row:(row + 1), col:(col + 1)] = color
             print('random pixel')
         if np.random.random() < 0.5:
-            x, y = np.random.randint(0, 64), np.random.randint(0, 64)
+            col, row = np.random.randint(0, 64), np.random.randint(0, 64)
             delta = np.random.randint(-30, 31, (1, 1, 3))
-            individual[y, x] = np.clip(individual[y, x] + delta, 0, 255)
+            individual[row, col] = np.clip(individual[row, col] + delta, 0, 255)
             print('random adjustment')
         if np.random.random() < 0.5:
-            x1, y1 = np.random.randint(0, 64), np.random.randint(0, 64)
-            x2, y2 = np.random.randint(0, 64), np.random.randint(0, 64)
-            individual[x1, y1], individual[x2, y2] = individual[x2, y2].copy(), individual[x1, y1].copy()
+            col1, row1 = np.random.randint(0, 64), np.random.randint(0, 64)
+            col2, row2 = np.random.randint(0, 64), np.random.randint(0, 64)
+            individual[row1, col1], individual[row2, col2] = individual[row2, col2].copy(), individual[row1, col1].copy()
             print('random swap')
         if np.random.random() < 0.5:
-            x, y = np.random.randint(0, 64), np.random.randint(0, 64)
-            individual[y, x] = np.mean([individual[y, x], individual[(y + 1) % 64, x], individual[y, (x + 1) % 64]],
-                                       axis=0).astype(np.uint8)
+            col, row = np.random.randint(0, 64), np.random.randint(0, 64)
+            individual[row, col] = np.mean(
+                [individual[row, col], individual[(row + 1) % 64, col],
+                 individual[row, (col + 1) % 64]], axis=0).astype(np.uint8)
             print('random blending')
 
         return individual
