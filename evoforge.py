@@ -9,11 +9,12 @@ import numpy as np
 
 
 class Evolution:
-    def __init__(self, population_size=20):
+    def __init__(self, population_size=20, elite_proportion=0.5):
         self.population = []
         self.generation = 0
-        self.population_size = 1
+        self.population_size = population_size
         self.image = None
+        self.elite_proportion = elite_proportion
 
     def open_image(self, path):
         image = Image.open(path).convert('RGB')
@@ -32,24 +33,24 @@ class Evolution:
             col, row = np.random.randint(0, 64), np.random.randint(0, 64)
             color = np.random.randint(0, 256, (1, 1, 3), dtype=np.uint8)
             individual[row:(row + 1), col:(col + 1)] = color
-            print('random pixel')
+            #print('random pixel')
         if mutation == 1 or np.random.random() < 0.5:
             col, row = np.random.randint(0, 64), np.random.randint(0, 64)
             delta = np.random.randint(-30, 31, (1, 1, 3))
             individual[row, col] = np.clip(individual[row, col] + delta, 0, 255)
-            print('random adjustment')
+            #print('random adjustment')
         if mutation == 2 or np.random.random() < 0.5:
             col1, row1 = np.random.randint(0, 64), np.random.randint(0, 64)
             col2, row2 = np.random.randint(0, 64), np.random.randint(0, 64)
             individual[row1, col1], individual[row2, col2] = individual[row2, col2].copy(), individual[
                 row1, col1].copy()
-            print('random swap')
+            #print('random swap')
         if mutation == 3 or np.random.random() < 0.5:
             col, row = np.random.randint(0, 64), np.random.randint(0, 64)
             individual[row, col] = np.mean(
                 [individual[row, col], individual[(row + 1) % 64, col],
                  individual[row, (col + 1) % 64]], axis=0).astype(np.uint8)
-            print('random blending')
+            #print('random blending')
 
         return individual
 
@@ -78,7 +79,8 @@ class Evolution:
             return np.where(mask, individual1, individual2)
 
     def fitness(self, individual):
-        return np.mean(np.abs(individual.astype(np.int32) - self.image.astype(np.int32)))
+        image = np.kron(individual, np.ones((8, 8, 1), dtype=np.uint8))
+        return np.mean(np.abs(image.astype(np.int32) - self.image.astype(np.int32)))
 
     def evaluate(self):
         return [self.fitness(individual) for individual in self.population]
@@ -91,3 +93,37 @@ class Evolution:
     def show_individual(self, idx):
         img = Image.fromarray(self.population[idx], "RGB")
         img.show()
+
+    def save_individual(self, individual):
+        image = np.kron(individual, np.ones((8, 8, 1), dtype=np.uint8))
+        image = Image.fromarray(image, "RGB")
+        image.save('result.png')
+
+    def select_best(self):
+        fitness = self.evaluate()
+        best_index = np.argsort(fitness)[:1][0]
+        return self.population[best_index]
+
+    def step(self):
+
+        fitness = self.evaluate()
+        print('Generation {}'.format(self.generation), 'with fitness', np.mean(fitness))
+        new_population = []
+
+        elite_indices = np.argsort(fitness)[:int(self.population_size * self.elite_proportion)]
+        new_population = [self.population[i].copy() for i in elite_indices]
+
+        while len(new_population) < self.population_size:
+            parent1 = self.select_parent(fitness)
+            parent2 = self.select_parent(fitness)
+            child = self.crossover(parent1, parent2)
+            child = self.mutate(child)
+            new_population.append(child)
+
+        self.population = new_population
+        self.generation += 1
+
+
+
+
+
