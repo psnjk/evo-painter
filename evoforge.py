@@ -2,88 +2,108 @@ from random import random
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import numpy as np
+from skimage.color import rgb2lab
+from enum import Enum, auto
 
 
 # expand np array to 512 by 512, to represent an image.
 # image = np.kron(grid, np.ones((8, 8, 1), dtype=np.uint8))
 
+class EvoTools:
+    @staticmethod
+    def mae_fitness(individual, target):
+        return np.mean(np.abs(individual.astype(np.int32) - target.astype(np.int32)))
 
-class Evolution:
-    def __init__(self, population_size=20, elite_proportion=0.5):
+    @staticmethod
+    def mse_fitness(individual, target):
+        return np.mean((individual.astype(np.int32) - target.astype(np.int32)) ** 2)
+
+    @staticmethod
+    def delta_fitness(individual, target):
+        individual_lab = rgb2lab(individual / 255.0)
+        target_lab = rgb2lab(target / 255.0)
+        return np.mean(np.linalg.norm(individual_lab - target_lab, axis=2))
+
+    @staticmethod
+    def evaluate(population, target, func=mae_fitness):
+        return [func(individual, target) for individual in population]
+
+
+class MosaicEvolution:
+    def __init__(self, population_size, elite_proportion, block_size):
         self.population = []
         self.generation = 0
         self.population_size = population_size
         self.image = None
         self.elite_proportion = elite_proportion
+        self.pooled_image = None
+        self.block_size = block_size
+        self.image_size = 512 // block_size
 
     def open_image(self, path):
         image = Image.open(path).convert('RGB')
         image = ImageOps.contain(image, (512, 512))
         self.image = np.array(image)
+        h, w, c = self.image.shape
+
+        self.pooled_image = self.image.reshape(h // self.block_size, self.block_size, w // self.block_size,
+                                               self.block_size, c).mean(
+            axis=(1, 3)).astype(np.uint8)
 
     def create_population(self):
         for _ in range(self.population_size):
-            individual = np.random.randint(0, 256, (64, 64, 3), dtype=np.uint8)
+            individual = np.random.randint(0, 256, (self.image_size, self.image_size, 3), dtype=np.uint8)
             self.population.append(individual)
 
-    @staticmethod
-    def mutate(individual):
+    def mutate(self, individual):
         mutation = np.random.randint(4)
         if mutation == 0 or np.random.random() < 0.5:
-            col, row = np.random.randint(0, 64), np.random.randint(0, 64)
+            col, row = np.random.randint(0, self.image_size), np.random.randint(0, self.image_size)
             color = np.random.randint(0, 256, (1, 1, 3), dtype=np.uint8)
             individual[row:(row + 1), col:(col + 1)] = color
-            #print('random pixel')
+            # print('random pixel')
         if mutation == 1 or np.random.random() < 0.5:
-            col, row = np.random.randint(0, 64), np.random.randint(0, 64)
+            col, row = np.random.randint(0, self.image_size), np.random.randint(0, self.image_size)
             delta = np.random.randint(-30, 31, (1, 1, 3))
             individual[row, col] = np.clip(individual[row, col] + delta, 0, 255)
-            #print('random adjustment')
+            # print('random adjustment')
         if mutation == 2 or np.random.random() < 0.5:
-            col1, row1 = np.random.randint(0, 64), np.random.randint(0, 64)
-            col2, row2 = np.random.randint(0, 64), np.random.randint(0, 64)
+            col1, row1 = np.random.randint(0, self.image_size), np.random.randint(0, self.image_size)
+            col2, row2 = np.random.randint(0, self.image_size), np.random.randint(0, self.image_size)
             individual[row1, col1], individual[row2, col2] = individual[row2, col2].copy(), individual[
                 row1, col1].copy()
-            #print('random swap')
+            # print('random swap')
         if mutation == 3 or np.random.random() < 0.5:
-            col, row = np.random.randint(0, 64), np.random.randint(0, 64)
+            col, row = np.random.randint(0, self.image_size), np.random.randint(0, self.image_size)
             individual[row, col] = np.mean(
-                [individual[row, col], individual[(row + 1) % 64, col],
-                 individual[row, (col + 1) % 64]], axis=0).astype(np.uint8)
-            #print('random blending')
+                [individual[row, col], individual[(row + 1) % self.image_size, col],
+                 individual[row, (col + 1) % self.image_size]], axis=0).astype(np.uint8)
+            # print('random blending')
 
         return individual
 
-    @staticmethod
-    def crossover(individual1, individual2):
+    def crossover(self, individual1, individual2):
         crossover_chance = np.random.random()
         if crossover_chance < 0.1:
             alpha = np.random.rand()
             return (alpha * individual1 + (1 - alpha) * individual2).astype(np.uint8)
         elif crossover_chance < 0.3:
             if np.random.random() < 0.5:
-                mask = np.random.randint(0, 2, (64, 1, 1), dtype=bool)
+                mask = np.random.randint(0, 2, (self.image_size, 1, 1), dtype=bool)
                 return np.where(mask, individual1, individual2)
             else:
-                mask = np.random.randint(0, 2, (1, 64, 1), dtype=bool)
+                mask = np.random.randint(0, 2, (1, self.image_size, 1), dtype=bool)
                 return np.where(mask, individual1, individual2)
         elif crossover_chance < 0.6:
             block_size = 16
-            y = np.random.randint(0, 64 - block_size + 1)
-            x = np.random.randint(0, 64 - block_size + 1)
+            y = np.random.randint(0, self.image_size - block_size + 1)
+            x = np.random.randint(0, self.image_size - block_size + 1)
             child = individual2.copy()
             child[y:y + block_size, x:x + block_size] = individual1[y:y + block_size, x:x + block_size]
             return child
         else:
-            mask = np.random.randint(0, 2, (64, 64, 1), dtype=bool)
+            mask = np.random.randint(0, 2, (self.image_size, self.image_size, 1), dtype=bool)
             return np.where(mask, individual1, individual2)
-
-    def fitness(self, individual):
-        image = np.kron(individual, np.ones((8, 8, 1), dtype=np.uint8))
-        return np.mean(np.abs(image.astype(np.int32) - self.image.astype(np.int32)))
-
-    def evaluate(self):
-        return [self.fitness(individual) for individual in self.population]
 
     def select_parent(self, fitness, k=3):
         idx = np.random.choice(len(self.population), k, replace=False)
@@ -94,23 +114,22 @@ class Evolution:
         img = Image.fromarray(self.population[idx], "RGB")
         img.show()
 
-    def save_individual(self, individual):
+    def save_individual(self, individual, filename):
         image = np.kron(individual, np.ones((8, 8, 1), dtype=np.uint8))
         image = Image.fromarray(image, "RGB")
-        image.save('result.png')
+        image.save(filename)
 
     def select_best(self):
-        fitness = self.evaluate()
+        fitness = EvoTools.evaluate(self.population, self.pooled_image)
         best_index = np.argsort(fitness)[:1][0]
         return self.population[best_index]
 
     def step(self):
 
-        fitness = self.evaluate()
-        print('Generation {}'.format(self.generation), 'with fitness', np.mean(fitness))
-        new_population = []
+        fitness = EvoTools.evaluate(self.population, self.pooled_image, EvoTools.mae_fitness)
 
         elite_indices = np.argsort(fitness)[:int(self.population_size * self.elite_proportion)]
+        print('Generation {}'.format(self.generation), 'with fitness', fitness[elite_indices[0]])
         new_population = [self.population[i].copy() for i in elite_indices]
 
         while len(new_population) < self.population_size:
@@ -123,7 +142,40 @@ class Evolution:
         self.population = new_population
         self.generation += 1
 
+        return fitness[elite_indices[0]]
 
 
+class Algorithm(Enum):
+    MOSAIC = auto()
+    TEXT = auto()
+    FRACTAL = auto()
 
+
+class Forge:
+    def __init__(self, target: Image.Image, algorithm: Algorithm = Algorithm.MOSAIC, **kwargs):
+        self.target = target
+        self.algorithm = algorithm
+        if self.algorithm == Algorithm.MOSAIC:
+            if 'population_size' in kwargs:
+                population_size = kwargs['population_size']
+            else:
+                population_size = 20
+
+            if 'elite_proportion' in kwargs:
+                elite_proportion = kwargs['elite_proportion']
+            else:
+                elite_proportion = 0.5
+
+            if 'block_size' in kwargs:
+                block_size = kwargs['block_size']
+            else:
+                block_size = 8
+            self.evo = MosaicEvolution(population_size, elite_proportion, block_size)
+        elif self.algorithm == Algorithm.TEXT:
+            raise NotImplementedError
+        elif self.algorithm == Algorithm.FRACTAL:
+            raise NotImplementedError
+
+    def prepare(self):
+        raise NotImplementedError
 
