@@ -40,7 +40,7 @@ class MosaicEvolution:
         self.block_size = block_size
         self.image_size = 512 // block_size
 
-    def open_image(self, path):
+    def open_image_old(self, path):
         image = Image.open(path).convert('RGB')
         image = ImageOps.contain(image, (512, 512))
         self.image = np.array(image)
@@ -50,7 +50,15 @@ class MosaicEvolution:
                                                self.block_size, c).mean(
             axis=(1, 3)).astype(np.uint8)
 
-    def create_population(self):
+    def open_image(self, image):
+        self.image = np.array(ImageOps.contain(image.convert('RGB'), (512, 512)))
+
+        h, w, c = self.image.shape
+        self.pooled_image = self.image.reshape(h // self.block_size, self.block_size, w // self.block_size,
+                                               self.block_size, c).mean(axis=(1, 3)).astype(np.uint8)
+
+    def reset_population(self):
+        self.generation = 0
         for _ in range(self.population_size):
             individual = np.random.randint(0, 256, (self.image_size, self.image_size, 3), dtype=np.uint8)
             self.population.append(individual)
@@ -153,6 +161,9 @@ class Algorithm(Enum):
 
 class Forge:
     def __init__(self, target: Image.Image, algorithm: Algorithm = Algorithm.MOSAIC, **kwargs):
+        self.best_fit = 0
+        self.running = False
+        self.paused = False
         self.target = target
         self.algorithm = algorithm
         if self.algorithm == Algorithm.MOSAIC:
@@ -171,11 +182,36 @@ class Forge:
             else:
                 block_size = 8
             self.evo = MosaicEvolution(population_size, elite_proportion, block_size)
+            self.evo.reset_population()
+            self.evo.open_image(self.target)
+
         elif self.algorithm == Algorithm.TEXT:
             raise NotImplementedError
         elif self.algorithm == Algorithm.FRACTAL:
             raise NotImplementedError
 
-    def prepare(self):
-        raise NotImplementedError
+    def run(self):
+        self.running = True
 
+    def pause(self):
+        self.paused = True
+
+    def stop(self):
+        self.running = False
+
+    def unpause(self):
+        self.paused = False
+
+    def get_generation(self):
+        return self.evo.generation
+
+    def reset_algorithm(self):
+        self.evo.reset_population()
+
+    def get_best_fit(self):
+        return self.best_fit
+
+    def loop(self):
+        while self.running:
+            if not self.paused:
+                self.best_fit = self.evo.step()
