@@ -40,16 +40,6 @@ class MosaicEvolution:
         self.block_size = block_size
         self.image_size = 512 // block_size
 
-    def open_image_old(self, path):
-        image = Image.open(path).convert('RGB')
-        image = ImageOps.contain(image, (512, 512))
-        self.image = np.array(image)
-        h, w, c = self.image.shape
-
-        self.pooled_image = self.image.reshape(h // self.block_size, self.block_size, w // self.block_size,
-                                               self.block_size, c).mean(
-            axis=(1, 3)).astype(np.uint8)
-
     def open_image(self, image):
         self.image = np.array(ImageOps.contain(image.convert('RGB'), (512, 512)))
 
@@ -137,7 +127,7 @@ class MosaicEvolution:
         fitness = EvoTools.evaluate(self.population, self.pooled_image, EvoTools.mae_fitness)
 
         elite_indices = np.argsort(fitness)[:int(self.population_size * self.elite_proportion)]
-        print('Generation {}'.format(self.generation), 'with fitness', fitness[elite_indices[0]])
+        # print('Generation {}'.format(self.generation), 'with fitness', fitness[elite_indices[0]])
         new_population = [self.population[i].copy() for i in elite_indices]
 
         while len(new_population) < self.population_size:
@@ -160,11 +150,10 @@ class Algorithm(Enum):
 
 
 class Forge:
-    def __init__(self, target: Image.Image, algorithm: Algorithm = Algorithm.MOSAIC, **kwargs):
+    def __init__(self, algorithm: Algorithm = Algorithm.MOSAIC, **kwargs):
         self.best_fit = 0
         self.running = False
         self.paused = False
-        self.target = target
         self.algorithm = algorithm
         if self.algorithm == Algorithm.MOSAIC:
             if 'population_size' in kwargs:
@@ -182,8 +171,6 @@ class Forge:
             else:
                 block_size = 8
             self.evo = MosaicEvolution(population_size, elite_proportion, block_size)
-            self.evo.reset_population()
-            self.evo.open_image(self.target)
 
         elif self.algorithm == Algorithm.TEXT:
             raise NotImplementedError
@@ -192,6 +179,9 @@ class Forge:
 
     def run(self):
         self.running = True
+
+    def open_image(self, target: Image.Image):
+        self.evo.open_image(target)
 
     def pause(self):
         self.paused = True
@@ -211,7 +201,13 @@ class Forge:
     def get_best_fit(self):
         return self.best_fit
 
+    def get_best(self):
+        grid = self.evo.select_best()
+        image = np.kron(grid, np.ones((8, 8, 1), dtype=np.uint8))
+        return Image.fromarray(image)
+
     def loop(self):
-        while self.running:
-            if not self.paused:
-                self.best_fit = self.evo.step()
+        while True:
+            if self.running:
+                if not self.paused:
+                    self.best_fit = self.evo.step()
